@@ -19,3 +19,4 @@ To do
  - add error handling
  - add caching
  - use structs and std library in place of gjson
+ - shrink docker image
