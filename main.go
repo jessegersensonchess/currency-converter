@@ -71,6 +71,7 @@ func main() {
 	CurrencyFrom := strings.ToUpper(os.Args[1])
 	CurrencyTo := strings.ToUpper(os.Args[2])
 	CurrencyPair := fmt.Sprintf("%v%v", CurrencyFrom, CurrencyTo)
+	CurrencyPairInverse := fmt.Sprintf("%v%v", CurrencyTo, CurrencyFrom)
 
 	// attempt to get key 'CurrentPair' from redis
 	result, err := redisGet(CurrencyPair)
@@ -81,8 +82,15 @@ func main() {
 		// get rate from API
 		regularMarketPrice := getRate(CurrencyFrom, CurrencyTo)
 		regularMarketPriceString := strconv.FormatFloat(regularMarketPrice, 'g', -1, 64)
-		// store key-value in redis
+
+		// convert rate to string
+		regularMarketPriceInverseString := strconv.FormatFloat(1/regularMarketPrice, 'g', -1, 64)
+
+		// store key-value pairs in redis
 		redisSet(CurrencyPair, regularMarketPriceString)
+		redisSet(CurrencyPairInverse, regularMarketPriceInverseString)
+
+		// print rates
 		printRates(regularMarketPrice, Qty, CurrencyFrom, CurrencyTo)
 		printTally(regularMarketPrice, float64(Qty), CurrencyTo)
 	} else {
