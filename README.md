@@ -1,6 +1,6 @@
 Currency converter
 =======================
-Converts from one currency into another. Takes 2 or 3 arguments. The last arg is opitonal. 
+Converts between ISO 4217 currency codes. Takes 2 or 3 arguments. The last arg is opitonal. 
 
 Usage: go run main.go usd eur 100
 
@@ -11,7 +11,7 @@ docker build -t currency/converter:latest .
 Convert USD to Euro
 
 ```
-docker run -it --rm currency:latest usd eur
+docker run -it --rm currency:latest usd eur 100
 ```
 
 To do
