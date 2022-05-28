@@ -22,7 +22,7 @@ func redisSet(key string, val string) {
 	// TTL is
 	err := Rdb.Set(ctx, key, val, redisTTL*time.Second).Err()
 	if err != nil {
-		println("error:", err)
+		println("redis error:", err)
 	}
 	return
 }
@@ -39,7 +39,7 @@ func redisGet(key string) (string, error) {
 	if err == redis.Nil {
 		fmt.Printf("key=%v does not exist in redis\n", key)
 	} else if err != nil {
-		println("error:", err)
+		println("redis error:", err)
 	} else {
 		//fmt.Println(key, val)
 	}
