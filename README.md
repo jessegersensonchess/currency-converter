@@ -17,6 +17,8 @@ docker run -it --rm currency:latest usd eur
 To do
 ------------
  - add error handling
- - add caching
+ - add logging
+ - add docker-compose.yml
+ - move config to config management system
  - use structs and std library in place of gjson
- - shrink docker image
+ - get a code review
