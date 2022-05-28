@@ -41,7 +41,7 @@ func getRate(CurrencyFrom string, CurrencyTo string) float64 {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		fmt.Println("something was wrong. status code was not 200")
+		fmt.Println("something was wrong. status code was not 200\n check https://en.wikipedia.org/wiki/ISO_4217 for valid currency codes")
 		os.Exit(response.StatusCode)
 	}
 	responseData, _ := ioutil.ReadAll(response.Body)
