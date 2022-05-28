@@ -1,4 +1,3 @@
-// Convert from one currency into another
 package main
 
 import (
@@ -71,10 +70,27 @@ func main() {
 
 	CurrencyFrom := strings.ToUpper(os.Args[1])
 	CurrencyTo := strings.ToUpper(os.Args[2])
-	regularMarketPrice := getRate(CurrencyFrom, CurrencyTo)
-	printRates(regularMarketPrice, Qty, CurrencyFrom, CurrencyTo)
-	fmt.Printf("\ntime taken: %v ms", time.Since(start).Milliseconds())
-	printTally(regularMarketPrice, float64(Qty), CurrencyTo)
+	CurrencyPair := fmt.Sprintf("%v%v", CurrencyFrom, CurrencyTo)
+
+	// attempt to get key 'CurrentPair' from redis
+	result, err := redisGet(CurrencyPair)
+
+	// if redis key does not exist, we get an error
+	// and getRate then stick value in redis
+	if err != nil {
+		// get rate from API
+		regularMarketPrice := getRate(CurrencyFrom, CurrencyTo)
+		regularMarketPriceString := strconv.FormatFloat(regularMarketPrice, 'g', -1, 64)
+		// store key-value in redis
+		redisSet(CurrencyPair, regularMarketPriceString)
+		printRates(regularMarketPrice, Qty, CurrencyFrom, CurrencyTo)
+		printTally(regularMarketPrice, float64(Qty), CurrencyTo)
+	} else {
+		resultFloat64, _ := strconv.ParseFloat(result, 64)
+		printRates(resultFloat64, Qty, CurrencyFrom, CurrencyTo)
+		printTally(resultFloat64, float64(Qty), CurrencyTo)
+	}
+	fmt.Printf("\n\ntime taken: %v ms\n", time.Since(start).Milliseconds())
 
 }
 
@@ -84,7 +100,7 @@ func printTally(regularMarketPrice float64, Qty float64, CurrencyTo string) {
 }
 
 func printRates(regularMarketPrice float64, Qty float64, CurrencyFrom string, CurrencyTo string) {
-	fmt.Printf("amount: %v %v\n", Qty, CurrencyFrom)
+	fmt.Printf("\namount: %v %v\n\n", Qty, CurrencyFrom)
 	fmt.Printf("1 %v = %v %v\n", CurrencyFrom, regularMarketPrice, CurrencyTo)
 	fmt.Printf("1 %v = %.3f %v\n", CurrencyTo, 1/regularMarketPrice, CurrencyFrom)
 }
