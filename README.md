@@ -18,7 +18,7 @@ To do
 ------------
  - add error handling
  - add logging
- - add docker-compose.yml
  - move config to config management system
  - use structs and std library in place of gjson
  - get a code review
+ - add a RESTful api
