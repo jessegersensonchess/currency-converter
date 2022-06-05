@@ -2,36 +2,71 @@ package main
 
 import (
 	"github.com/tidwall/gjson"
-	"bytes"
+	"github.com/go-redis/redis/v8"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"context"
 	"time"
 )
 
+var ctx = context.Background()
+
+// todo: use configuration management
+// cache conversion rates in redis for 1 day
+const redisTTL = 86400
+
+func redisSet(key string, val string) {
+	Rdb := redis.NewClient(&redis.Options{
+		// todo: replace hardcoded values
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+	// TTL is
+	err := Rdb.Set(ctx, key, val, redisTTL*time.Second).Err()
+	if err != nil {
+		println("redis error:", err)
+	}
+	return
+}
+
+func redisGet(key string) (string, error) {
+	Rdb := redis.NewClient(&redis.Options{
+		// todo: replace hardcoded values
+		Addr:     "localhost:6379",
+		Password: "", // no password set
+		DB:       0,  // use default DB
+	})
+
+	val, err := Rdb.Get(ctx, key).Result()
+	if err == redis.Nil {
+		fmt.Printf("key=%v does not exist in redis\n", key)
+	} else if err != nil {
+		println("redis error:", err)
+	} else {
+		//fmt.Println(key, val)
+	}
+
+	return val, err
+}
+
+
 func validateCurrencyCode(CurrencyCode string) bool {
 	// description: validates currency code
-	result := false
 	// todo: work up a real test
 	if CurrencyCode == "is in list of currencies" {
-		result = true
-	} else {
-		result = false
+		return true
 	}
-	return result
+	return false
 }
 
 func getRate(CurrencyFrom string, CurrencyTo string) float64 {
-	httpposturl := fmt.Sprintf("https://query1.finance.yahoo.com/v7/finance/chart/%v%v%v", CurrencyFrom, CurrencyTo, "=x?corsDomain=finance.yahoo.com&range=1d&interval=1d")
-	// todo: get rid of bytes.NewBuffer yet set a request header
-	var jsonData = []byte(`{
-		"b": "l"
-	}`)
-
-	request, error := http.NewRequest("GET", httpposturl, bytes.NewBuffer(jsonData))
+	url := fmt.Sprintf("https://query1.finance.yahoo.com/v7/finance/chart/%v%v%v", CurrencyFrom, CurrencyTo, "=x?range=1d&interval=1d")
+	request, error := http.NewRequest("GET", url, nil)
 	request.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -55,16 +90,16 @@ func getRate(CurrencyFrom string, CurrencyTo string) float64 {
 
 func main() {
 	start := time.Now()
-	Qty, _ := 1.0, 0
+	Qty := 1.0
 	lenArgs := len(os.Args)
 	if lenArgs == 4 {
 		Qty, _ = strconv.ParseFloat(os.Args[3], 64)
 	}
 
 	if lenArgs < 3 {
-		fmt.Println("USAGE: con [currency_code] [currency_code] int")
-		fmt.Println("EXAMPLE: con usd czk 100")
-		fmt.Println("list of currencies: cat ~/git/scripts/currencies")
+		fmt.Println("USAGE: ./currency-converter [currency_code] [currency_code] int")
+		fmt.Println("EXAMPLE: ./currency-converter usd eur 100")
+		fmt.Println("list of currency codes: https://en.wikipedia.org/wiki/ISO_4217)")
 		os.Exit(2)
 	}
 
