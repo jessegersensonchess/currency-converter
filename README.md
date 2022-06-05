@@ -11,7 +11,7 @@ docker build -t currency/converter:latest .
 Convert USD to Euro
 
 ```
-docker run -it --rm currency:latest usd eur 100
+docker run -it --rm currency/converter:latest usd eur 100
 ```
 
 To do
