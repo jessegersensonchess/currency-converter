@@ -28,9 +28,12 @@ func redisSet(key string, val string) {
 	})
 	// TTL is
 	err := Rdb.Set(ctx, key, val, redisTTL*time.Second).Err()
+	a := "1"
 	if err != nil {
-		println("redis error:", err)
+		//println("redis error:", err)
+		a = ""
 	}
+	fmt.Sprintf("%v", a)
 	return
 }
 
@@ -46,7 +49,7 @@ func redisGet(key string) (string, error) {
 	if err == redis.Nil {
 		fmt.Printf("key=%v does not exist in redis\n", key)
 	} else if err != nil {
-		println("redis error:", err)
+		//println("redis error:", err)
 	} else {
 		//fmt.Println(key, val)
 	}
@@ -89,7 +92,6 @@ func getRate(CurrencyFrom string, CurrencyTo string) float64 {
 }
 
 func main() {
-	start := time.Now()
 	Qty := 1.0
 	lenArgs := len(os.Args)
 	if lenArgs == 4 {
@@ -133,7 +135,6 @@ func main() {
 		printRates(resultFloat64, Qty, CurrencyFrom, CurrencyTo)
 		printTally(resultFloat64, float64(Qty), CurrencyTo)
 	}
-	fmt.Printf("\n\ntime taken: %v ms\n", time.Since(start).Milliseconds())
 
 }
 
