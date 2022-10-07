@@ -1,22 +1,22 @@
+// ISO_4217 currency converter
 package main
 
 import (
-	"github.com/tidwall/gjson"
-	"github.com/go-redis/redis/v8"
+	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/go-redis/redis/v8"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
-	"context"
 	"time"
 )
 
 var ctx = context.Background()
 
-// todo: use configuration management
-// cache conversion rates in redis for 1 day
 const redisTTL = 86400
 
 func redisSet(key string, val string) {
@@ -26,14 +26,10 @@ func redisSet(key string, val string) {
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
-	// TTL is
 	err := Rdb.Set(ctx, key, val, redisTTL*time.Second).Err()
-	a := "1"
 	if err != nil {
-		//println("redis error:", err)
-		a = ""
+		fmt.Println("redis set error")
 	}
-	fmt.Sprintf("%v", a)
 	return
 }
 
@@ -53,62 +49,116 @@ func redisGet(key string) (string, error) {
 	} else {
 		//fmt.Println(key, val)
 	}
-
 	return val, err
 }
 
-
-func validateCurrencyCode(CurrencyCode string) bool {
-	// description: validates currency code
-	// todo: work up a real test
-	if CurrencyCode == "is in list of currencies" {
-		return true
-	}
-	return false
+type apiResponse struct {
+	Chart struct {
+		Result []struct {
+			Meta struct {
+				Currency             string  `json:"currency"`
+				Symbol               string  `json:"symbol"`
+				ExchangeName         string  `json:"exchangeName"`
+				InstrumentType       string  `json:"instrumentType"`
+				FirstTradeDate       int     `json:"firstTradeDate"`
+				RegularMarketTime    int     `json:"regularMarketTime"`
+				Gmtoffset            int     `json:"gmtoffset"`
+				Timezone             string  `json:"timezone"`
+				ExchangeTimezoneName string  `json:"exchangeTimezoneName"`
+				RegularMarketPrice   float64 `json:"regularMarketPrice"`
+				ChartPreviousClose   float64 `json:"chartPreviousClose"`
+				PriceHint            int     `json:"priceHint"`
+				CurrentTradingPeriod struct {
+					Pre struct {
+						Timezone  string `json:"timezone"`
+						Start     int    `json:"start"`
+						End       int    `json:"end"`
+						Gmtoffset int    `json:"gmtoffset"`
+					} `json:"pre"`
+					Regular struct {
+						Timezone  string `json:"timezone"`
+						Start     int    `json:"start"`
+						End       int    `json:"end"`
+						Gmtoffset int    `json:"gmtoffset"`
+					} `json:"regular"`
+					Post struct {
+						Timezone  string `json:"timezone"`
+						Start     int    `json:"start"`
+						End       int    `json:"end"`
+						Gmtoffset int    `json:"gmtoffset"`
+					} `json:"post"`
+				} `json:"currentTradingPeriod"`
+				DataGranularity string   `json:"dataGranularity"`
+				Range           string   `json:"range"`
+				ValidRanges     []string `json:"validRanges"`
+			} `json:"meta"`
+			Timestamp  []int `json:"timestamp"`
+			Indicators struct {
+				Quote []struct {
+					High   []float64 `json:"high"`
+					Volume []int     `json:"volume"`
+					Open   []float64 `json:"open"`
+					Low    []float64 `json:"low"`
+					Close  []float64 `json:"close"`
+				} `json:"quote"`
+				Adjclose []struct {
+					Adjclose []float64 `json:"adjclose"`
+				} `json:"adjclose"`
+			} `json:"indicators"`
+		} `json:"result"`
+		Error interface{} `json:"error"`
+	} `json:"chart"`
 }
 
-func getRate(CurrencyFrom string, CurrencyTo string) float64 {
+// GET url and return a struct (from https://codezup.com/fetch-parse-json-from-http-endpoint-golang/)
+func getData(url string) (apiResponse, error) {
+	c := apiResponse{}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		return c, err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return c, err
+	}
+	if res.StatusCode != 200 {
+		fmt.Println("ERROR: HTTP response was not 200, exiting. status code was not 200\n check https://en.wikipedia.org/wiki/ISO_4217 for valid currency codes")
+		os.Exit(res.StatusCode)
+	}
+
+	if res.Body != nil {
+		defer res.Body.Close()
+	}
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return c, err
+	}
+	err = json.Unmarshal(body, &c)
+	if err != nil {
+		return c, err
+	}
+	return c, nil
+}
+
+func getRate(CurrencyFrom string, CurrencyTo string) (regularMarketPrice float64) {
 	url := fmt.Sprintf("https://query1.finance.yahoo.com/v7/finance/chart/%v%v%v", CurrencyFrom, CurrencyTo, "=x?range=1d&interval=1d")
-	request, error := http.NewRequest("GET", url, nil)
-	request.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	response, error := client.Do(request)
-	if error != nil {
-		panic(error)
+	apiResponse, err := getData(url)
+	if err != nil {
+		log.Fatal(err)
 	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		fmt.Println("something was wrong. status code was not 200\n check https://en.wikipedia.org/wiki/ISO_4217 for valid currency codes")
-		os.Exit(response.StatusCode)
-	}
-	responseData, _ := ioutil.ReadAll(response.Body)
-	// digs into the json and pulls out the value we want
-	// todo: use std library to pull this value using structs
-	value := gjson.GetBytes(responseData, "chart.result.0.meta.regularMarketPrice")
-	regularMarketPrice, _ := strconv.ParseFloat(value.String(), 64)
-	return regularMarketPrice
 
+	for _, i := range apiResponse.Chart.Result {
+		regularMarketPrice = i.Meta.RegularMarketPrice
+	}
+	return
 }
 
-func main() {
-	Qty := 1.0
-	lenArgs := len(os.Args)
-	if lenArgs == 4 {
-		Qty, _ = strconv.ParseFloat(os.Args[3], 64)
-	}
-
-	if lenArgs < 3 {
-		fmt.Println("USAGE: ./currency-converter [currency_code] [currency_code] int")
-		fmt.Println("EXAMPLE: ./currency-converter usd eur 100")
-		fmt.Println("list of currency codes: https://en.wikipedia.org/wiki/ISO_4217)")
-		os.Exit(2)
-	}
-
-	CurrencyFrom := strings.ToUpper(os.Args[1])
-	CurrencyTo := strings.ToUpper(os.Args[2])
-	CurrencyPair := fmt.Sprintf("%v%v", CurrencyFrom, CurrencyTo)
-	CurrencyPairInverse := fmt.Sprintf("%v%v", CurrencyTo, CurrencyFrom)
+func convertCurrency(CurrencyFrom string, CurrencyTo string, Qty int) {
+	CurrencyFrom = strings.ToUpper(CurrencyFrom)
+	CurrencyTo = strings.ToUpper(CurrencyTo)
+	CurrencyPair := CurrencyFrom + CurrencyTo
+	CurrencyPairInverse := CurrencyTo + CurrencyFrom
 
 	// attempt to get key 'CurrentPair' from redis
 	result, err := redisGet(CurrencyPair)
@@ -129,21 +179,35 @@ func main() {
 
 		// print rates
 		printRates(regularMarketPrice, Qty, CurrencyFrom, CurrencyTo)
-		printTally(regularMarketPrice, float64(Qty), CurrencyTo)
+		printTally(regularMarketPrice, Qty, CurrencyTo)
 	} else {
 		resultFloat64, _ := strconv.ParseFloat(result, 64)
 		printRates(resultFloat64, Qty, CurrencyFrom, CurrencyTo)
-		printTally(resultFloat64, float64(Qty), CurrencyTo)
+		printTally(resultFloat64, Qty, CurrencyTo)
 	}
-
 }
 
-func printTally(regularMarketPrice float64, Qty float64, CurrencyTo string) {
+func main() {
+	lenArgs := len(os.Args)
+	Qty := 1
+	if lenArgs < 3 {
+		fmt.Println("USAGE: ./currency-converter [currency_code] [currency_code] int")
+		fmt.Println("EXAMPLE: ./currency-converter usd eur 100")
+		fmt.Println("list of currency codes: https://en.wikipedia.org/wiki/ISO_4217)")
+		os.Exit(2)
+	} else {
+		if lenArgs >= 4 {
+			Qty, _ = strconv.Atoi(os.Args[3])
+		}
+	}
+	convertCurrency(strings.ToUpper(os.Args[1]), strings.ToUpper(os.Args[2]), Qty)
+}
+
+func printTally(regularMarketPrice float64, Qty int, CurrencyTo string) {
 	fmt.Printf("\n\n  %.2f %v\n\n", regularMarketPrice*float64(Qty), CurrencyTo)
-
 }
 
-func printRates(regularMarketPrice float64, Qty float64, CurrencyFrom string, CurrencyTo string) {
+func printRates(regularMarketPrice float64, Qty int, CurrencyFrom string, CurrencyTo string) {
 	fmt.Printf("\namount: %v %v\n\n", Qty, CurrencyFrom)
 	fmt.Printf("1 %v = %v %v\n", CurrencyFrom, regularMarketPrice, CurrencyTo)
 	fmt.Printf("1 %v = %.3f %v\n", CurrencyTo, 1/regularMarketPrice, CurrencyFrom)
