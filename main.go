@@ -119,8 +119,8 @@ func convertCurrency(CurrencyFrom string, CurrencyTo string, Qty int) {
 	// attempt to get key 'CurrentPair' from redis
 	result, err := redisGet(CurrencyPair)
 
-	// if redis key does not exist, we get an error
-	// and getRate then stick value in redis
+	// if redisGet returns an err, "err" is not nil.
+	// for example, if the key is not found, or redis is not running
 	if err != nil {
 		// get rate from API
 		regularMarketPrice := getRate(CurrencyFrom, CurrencyTo)
