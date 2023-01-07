@@ -115,7 +115,7 @@ func read(fd_r io.Reader) ([]byte, error) {
 func printList(path string) string {
 	ba, err := readFile(path)
 	if err != nil {
-		fmt.Println("Error: %s\n", err)
+		fmt.Printf("Error: %s\n", err)
 	}
 	return fmt.Sprintf("The content of '%s' : \n%s\n", path, ba)
 }
