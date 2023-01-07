@@ -2,22 +2,29 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-redis/redis/v8"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 )
 
 var ctx = context.Background()
 
-const redisTTL = 86400
+const (
+	redisTTL = 86400
+)
 
 func redisSet(key string, val string) {
 	Rdb := redis.NewClient(&redis.Options{
@@ -55,15 +62,62 @@ type apiResponse struct {
 	Chart struct {
 		Result []struct {
 			Meta struct {
-				Currency             string  `json:"currency"`
-				Symbol               string  `json:"symbol"`
-				RegularMarketTime    int     `json:"regularMarketTime"`
-				RegularMarketPrice   float64 `json:"regularMarketPrice"`
+				Currency           string  `json:"currency"`
+				Symbol             string  `json:"symbol"`
+				RegularMarketTime  int     `json:"regularMarketTime"`
+				RegularMarketPrice float64 `json:"regularMarketPrice"`
 			} `json:"meta"`
-			Timestamp  []int `json:"timestamp"`
+			Timestamp []int `json:"timestamp"`
 		} `json:"result"`
 		Error interface{} `json:"error"`
 	} `json:"chart"`
+}
+
+func readFile(path string) ([]byte, error) {
+	parentPath, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+
+	pullPath := filepath.Join(parentPath, path)
+	file, err := os.Open(pullPath)
+	if err != nil {
+		return nil, err
+	}
+
+	defer file.Close()
+	return read(file)
+}
+
+func read(fd_r io.Reader) ([]byte, error) {
+	br := bufio.NewReader(fd_r)
+	var buf bytes.Buffer
+
+	for {
+		ba, isPrefix, err := br.ReadLine()
+
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+
+		buf.Write(ba)
+		if !isPrefix {
+			buf.WriteByte('\n')
+		}
+
+	}
+	return buf.Bytes(), nil
+}
+
+func printList(path string) string {
+	ba, err := readFile(path)
+	if err != nil {
+		fmt.Println("Error: %s\n", err)
+	}
+	return fmt.Sprintf("The content of '%s' : \n%s\n", path, ba)
 }
 
 // GET url and return a struct (from https://codezup.com/fetch-parse-json-from-http-endpoint-golang/)
@@ -150,6 +204,7 @@ func main() {
 		fmt.Println("USAGE: ./currency-converter [currency_code] [currency_code] int")
 		fmt.Println("EXAMPLE: ./currency-converter usd eur 100")
 		fmt.Println("list of currency codes: https://en.wikipedia.org/wiki/ISO_4217)")
+		fmt.Println(printList("list"))
 		os.Exit(2)
 	} else {
 		if lenArgs >= 4 {
