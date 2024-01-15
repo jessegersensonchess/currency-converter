@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -14,49 +15,17 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
-
-	"github.com/go-redis/redis/v8"
 )
+
+// Global cache for storing conversion rates
+var rateCache = make(map[string]float64)
+var cacheMutex = &sync.Mutex{}
 
 var ctx = context.Background()
-
-const (
-	redisTTL = 86400
-)
-
-func redisSet(key string, val string) {
-	Rdb := redis.NewClient(&redis.Options{
-		// todo: replace hardcoded values
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-	err := Rdb.Set(ctx, key, val, redisTTL*time.Second).Err()
-	if err != nil {
-	}
-	return
-}
-
-func redisGet(key string) (string, error) {
-	Rdb := redis.NewClient(&redis.Options{
-		// todo: replace hardcoded values
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	val, err := Rdb.Get(ctx, key).Result()
-	if err == redis.Nil {
-		fmt.Printf("key=%v does not exist in redis\n", key)
-	} else if err != nil {
-		//println("redis error:", err)
-	} else {
-		//fmt.Println(key, val)
-	}
-	return val, err
-}
+var apiUrl1 = "https://query1.finance.yahoo.com/v7/finance/chart"
+var apiUrl2 = "https://query2.finance.yahoo.com/v7/finance/chart"
 
 type apiResponse struct {
 	Chart struct {
@@ -121,29 +90,30 @@ func printList(path string) string {
 }
 
 // GET url and return a struct (from https://codezup.com/fetch-parse-json-from-http-endpoint-golang/)
-func getData(url string) (apiResponse, error) {
+// getData now accepts a context for timeout control
+func getData(ctx context.Context, url string) (apiResponse, error) {
 	c := apiResponse{}
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	req.Header.Set("Content-Type", "application/json")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return c, err
 	}
+	req.Header.Set("Content-Type", "application/json")
+
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return c, err
 	}
+	defer res.Body.Close()
+
 	if res.StatusCode != 200 {
-		fmt.Println("ERROR: HTTP response was not 200, exiting. status code was not 200\n check https://en.wikipedia.org/wiki/ISO_4217 for valid currency codes")
-		os.Exit(res.StatusCode)
+		return c, fmt.Errorf("non-200 HTTP status code: %d", res.StatusCode)
 	}
 
-	if res.Body != nil {
-		defer res.Body.Close()
-	}
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return c, err
 	}
+
 	err = json.Unmarshal(body, &c)
 	if err != nil {
 		return c, err
@@ -151,75 +121,165 @@ func getData(url string) (apiResponse, error) {
 	return c, nil
 }
 
+// getRate is modified to include a timeout
 func getRate(CurrencyFrom string, CurrencyTo string) (regularMarketPrice float64) {
-	url := fmt.Sprintf("https://query1.finance.yahoo.com/v7/finance/chart/%v%v%v", CurrencyFrom, CurrencyTo, "=x?range=1d&interval=1d")
-	apiResponse, err := getData(url)
-	if err != nil {
-		log.Fatal(err)
+	// Creating a context with a 2-second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2000*time.Millisecond)
+	defer cancel()
+
+	// Channel to receive the first successful result
+	resultChan := make(chan float64, 2) // Buffered to hold 2 results
+
+	// Function to fetch rate and send result to channel
+	fetchRate := func(apiUrl string, apiSource string) {
+		url := fmt.Sprintf("%v/%v%v%v", apiUrl, CurrencyFrom, CurrencyTo, "=x?range=1d&interval=1d")
+		apiResponse, err := getData(ctx, url) // Passing context to getData
+		if err != nil {
+			log.Println("Error fetching rate from:", apiUrl, "Error:", err)
+			return
+		}
+
+		for _, i := range apiResponse.Chart.Result {
+			log.Printf("Result received from %s", apiSource) // Logging the API source
+			resultChan <- i.Meta.RegularMarketPrice
+			break // Break after the first result to prevent multiple sends on channel
+		}
 	}
 
-	for _, i := range apiResponse.Chart.Result {
-		regularMarketPrice = i.Meta.RegularMarketPrice
+	// Start goroutines for each API URL
+	go fetchRate(apiUrl1, "apiUrl1")
+	go fetchRate(apiUrl2, "apiUrl2")
+
+	// Use select to wait for the first result or timeout
+	select {
+	case regularMarketPrice = <-resultChan:
+	case <-ctx.Done():
+		log.Println("Request timed out")
 	}
+
 	return
 }
 
-func convertCurrency(CurrencyFrom string, CurrencyTo string, Qty int) {
-	CurrencyFrom = strings.ToUpper(CurrencyFrom)
-	CurrencyTo = strings.ToUpper(CurrencyTo)
-	CurrencyPair := CurrencyFrom + CurrencyTo
-	CurrencyPairInverse := CurrencyTo + CurrencyFrom
+// CurrencyRequest represents a request for currency conversion
+type CurrencyRequest struct {
+	CurrencyFrom string `json:"currency_from"`
+	CurrencyTo   string `json:"currency_to"`
+	Quantity     int    `json:"quantity"`
+}
 
-	// attempt to get key 'CurrentPair' from redis
-	result, err := redisGet(CurrencyPair)
+type CurrencyResponse struct {
+	Result   float64 `json:"result"`
+	From     string  `json:"from"`
+	To       string  `json:"to"`
+	FromRate float64 `json:"from_rate"`
+	ToRate   float64 `json:"to_rate"`
+	Quantity int     `json:"quantity"`
+}
 
-	// if redisGet returns an err, "err" is not nil.
-	// for example, if the key is not found, or redis is not running
+func convertHandler(w http.ResponseWriter, r *http.Request) {
+	var req CurrencyRequest
+
+	// Decode the JSON body
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		// get rate from API
-		regularMarketPrice := getRate(CurrencyFrom, CurrencyTo)
-		regularMarketPriceString := strconv.FormatFloat(regularMarketPrice, 'g', -1, 64)
-
-		// convert rate to string
-		regularMarketPriceInverseString := strconv.FormatFloat(1/regularMarketPrice, 'g', -1, 64)
-
-		// store key-value pairs in redis
-		redisSet(CurrencyPair, regularMarketPriceString)
-		redisSet(CurrencyPairInverse, regularMarketPriceInverseString)
-
-		// print rates
-		printRates(regularMarketPrice, Qty, CurrencyFrom, CurrencyTo)
-		printTally(regularMarketPrice, Qty, CurrencyTo)
-	} else {
-		resultFloat64, _ := strconv.ParseFloat(result, 64)
-		printRates(resultFloat64, Qty, CurrencyFrom, CurrencyTo)
-		printTally(resultFloat64, Qty, CurrencyTo)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+
+	CurrencyPair := req.CurrencyFrom + req.CurrencyTo
+	CurrencyPairInverse := req.CurrencyTo + req.CurrencyFrom
+
+	// try adding cache
+	cacheMutex.Lock()
+	rate, found := rateCache[CurrencyPair]
+	cacheMutex.Unlock()
+
+	if !found {
+		// If not found in cache, get rate from API
+		rate = getRate(req.CurrencyFrom, req.CurrencyTo)
+
+		// Store rates in cache
+		cacheMutex.Lock()
+		rateCache[CurrencyPair] = rate
+		rateCache[CurrencyPairInverse] = 1 / rate
+		cacheMutex.Unlock()
+	}
+
+	// Perform conversion
+	//rate := getRate(req.CurrencyFrom, req.CurrencyTo)
+	result := rate * float64(req.Quantity)
+
+	// Determine the output format
+	format := r.URL.Query().Get("format")
+
+	if format == "text" {
+		// Text format output
+		inverseRate := 0.0
+		if rate != 0 {
+			inverseRate = 1 / rate
+		}
+
+		output := fmt.Sprintf("\namount: %d %s\n\n", req.Quantity, req.CurrencyFrom)
+		output += fmt.Sprintf("1 %s = %.4f %s\n", req.CurrencyFrom, rate, req.CurrencyTo)
+		output += fmt.Sprintf("1 %s = %.4f %s\n\n", req.CurrencyTo, inverseRate, req.CurrencyFrom)
+		output += fmt.Sprintf("  %.2f %s\n", result, req.CurrencyTo)
+
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, output)
+	} else {
+		// JSON format output
+		inverseRate := 0.0
+		if rate != 0 {
+			inverseRate = 1 / rate
+		}
+
+		resp := CurrencyResponse{
+			Result:   result,
+			From:     req.CurrencyFrom,
+			To:       req.CurrencyTo,
+			FromRate: rate,
+			ToRate:   inverseRate,
+			Quantity: req.Quantity,
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+
 }
 
 func main() {
-	lenArgs := len(os.Args)
-	Qty := 1
-	if lenArgs < 3 {
-		fmt.Println("USAGE: ./currency-converter [currency_code] [currency_code] int")
-		fmt.Println("EXAMPLE: ./currency-converter usd eur 100")
-		fmt.Println("list of currency codes: https://en.wikipedia.org/wiki/ISO_4217)")
-		fmt.Println(printList("list"))
-		os.Exit(2)
+	var port string
+
+	// Define a command-line flag
+	flagPort := flag.String("p", "", "Port to run the currency converter server on")
+	flag.Parse()
+
+	// Check if the port is provided via a flag
+	if *flagPort != "" {
+		port = *flagPort
 	} else {
-		if lenArgs >= 4 {
-			Qty, _ = strconv.Atoi(os.Args[3])
+		// Check if the port is provided via an environment variable
+		envPort, exists := os.LookupEnv("CURRENCY_CONVERTER_PORT")
+		if exists {
+			port = envPort
+		} else {
+			// Set to default port if neither flag nor environment variable is set
+			port = "18880"
 		}
 	}
-	convertCurrency(strings.ToUpper(os.Args[1]), strings.ToUpper(os.Args[2]), Qty)
-}
 
-func printTally(regularMarketPrice float64, Qty int, CurrencyTo string) {
-	fmt.Printf("\n\n  %.2f %v\n\n", regularMarketPrice*float64(Qty), CurrencyTo)
-}
+	// Ensure port is a valid integer
+	if _, err := strconv.Atoi(port); err != nil {
+		log.Fatalf("Invalid port number: %s", port)
+	}
 
-func printRates(regularMarketPrice float64, Qty int, CurrencyFrom string, CurrencyTo string) {
-	fmt.Printf("\namount: %v %v\n\n", Qty, CurrencyFrom)
-	fmt.Printf("1 %v = %v %v\n", CurrencyFrom, regularMarketPrice, CurrencyTo)
-	fmt.Printf("1 %v = %.3f %v\n", CurrencyTo, 1/regularMarketPrice, CurrencyFrom)
+	// HTTP route and handler setup
+	http.HandleFunc("/convert", convertHandler)
+
+	// Start the HTTP server
+	fmt.Printf("Starting server at port %s...\n", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
 }
