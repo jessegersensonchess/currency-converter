@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -23,9 +22,11 @@ import (
 var rateCache = make(map[string]float64)
 var cacheMutex = &sync.Mutex{}
 
-var ctx = context.Background()
-var apiUrl1 = "https://query1.finance.yahoo.com/v7/finance/chart"
-var apiUrl2 = "https://query2.finance.yahoo.com/v7/finance/chart"
+var (
+	ctx     = context.Background()
+	apiUrl1 = "https://query1.finance.yahoo.com/v7/finance/chart"
+	apiUrl2 = "https://query2.finance.yahoo.com/v7/finance/chart"
+)
 
 type apiResponse struct {
 	Chart struct {
@@ -47,13 +48,11 @@ func readFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	pullPath := filepath.Join(parentPath, path)
 	file, err := os.Open(pullPath)
 	if err != nil {
 		return nil, err
 	}
-
 	defer file.Close()
 	return read(file)
 }
@@ -61,22 +60,18 @@ func readFile(path string) ([]byte, error) {
 func read(fd_r io.Reader) ([]byte, error) {
 	br := bufio.NewReader(fd_r)
 	var buf bytes.Buffer
-
 	for {
 		ba, isPrefix, err := br.ReadLine()
-
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
 			return nil, err
 		}
-
 		buf.Write(ba)
 		if !isPrefix {
 			buf.WriteByte('\n')
 		}
-
 	}
 	return buf.Bytes(), nil
 }
@@ -89,15 +84,17 @@ func printList(path string) string {
 	return fmt.Sprintf("The content of '%s' : \n%s\n", path, ba)
 }
 
-// GET url and return a struct (from https://codezup.com/fetch-parse-json-from-http-endpoint-golang/)
-// getData now accepts a context for timeout control
+// getData fetches JSON data from the given URL using the provided context.
+// It now sets a custom User-Agent header and logs additional debugging info for non-200 responses.
 func getData(ctx context.Context, url string) (apiResponse, error) {
-	c := apiResponse{}
+	var c apiResponse
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return c, err
 	}
+	// Set headers including a custom User-Agent to mimic a modern Firefox browser.
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:112.0) Gecko/20100101 Firefox/112.0")
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -105,13 +102,18 @@ func getData(ctx context.Context, url string) (apiResponse, error) {
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != 200 {
-		return c, fmt.Errorf("non-200 HTTP status code: %d", res.StatusCode)
-	}
-
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return c, err
+	}
+
+	if res.StatusCode != http.StatusOK {
+		snippet := string(body)
+		if len(snippet) > 512 {
+			snippet = snippet[:512] + "..."
+		}
+		log.Printf("DEBUG: Non-200 response from URL %s: status code %d, body snippet: %s", url, res.StatusCode, snippet)
+		return c, fmt.Errorf("non-200 HTTP status code: %d", res.StatusCode)
 	}
 
 	err = json.Unmarshal(body, &c)
@@ -121,52 +123,51 @@ func getData(ctx context.Context, url string) (apiResponse, error) {
 	return c, nil
 }
 
-// getRate is modified to include a timeout
+// getRate now tries apiUrl1 first and, if it fails (e.g. 429), waits briefly then tries apiUrl2.
 func getRate(CurrencyFrom string, CurrencyTo string) (regularMarketPrice float64) {
-	// Creating a context with a 2-second timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2000*time.Millisecond)
+	// Create a context with a 2-second timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Channel to receive the first successful result
-	resultChan := make(chan float64, 2) // Buffered to hold 2 results
-
-	// Function to fetch rate and send result to channel
-	fetchRate := func(apiUrl string, apiSource string) {
-		url := fmt.Sprintf("%v/%v%v%v", apiUrl, CurrencyFrom, CurrencyTo, "=x?range=1d&interval=1d")
-		apiResponse, err := getData(ctx, url) // Passing context to getData
+	fetchFromURL := func(apiUrl, apiSource string) (float64, error) {
+		url := fmt.Sprintf("%v/%v%v=x?range=1d&interval=1d", apiUrl, CurrencyFrom, CurrencyTo)
+		apiResp, err := getData(ctx, url)
 		if err != nil {
-			log.Println("Error fetching rate from:", apiUrl, "Error:", err)
-			return
+			log.Printf("Error fetching rate from %s (%s): %v", apiUrl, apiSource, err)
+			return 0, err
 		}
-
-		for _, i := range apiResponse.Chart.Result {
-			log.Printf("Result received from %s", apiSource) // Logging the API source
-			resultChan <- i.Meta.RegularMarketPrice
-			break // Break after the first result to prevent multiple sends on channel
+		for _, res := range apiResp.Chart.Result {
+			log.Printf("Result received from %s (%s)", apiSource, apiUrl)
+			return res.Meta.RegularMarketPrice, nil
 		}
+		return 0, fmt.Errorf("no result in response from %s", apiUrl)
 	}
 
-	// Start goroutines for each API URL
-	go fetchRate(apiUrl1, "apiUrl1")
-	go fetchRate(apiUrl2, "apiUrl2")
-
-	// Use select to wait for the first result or timeout
-	select {
-	case regularMarketPrice = <-resultChan:
-	case <-ctx.Done():
-		log.Println("Request timed out")
+	// Try first endpoint.
+	rate, err := fetchFromURL(apiUrl1, "apiUrl1")
+	if err == nil && rate != 0 {
+		return rate
 	}
 
-	return
+	// Wait briefly before trying the fallback endpoint.
+	time.Sleep(300 * time.Millisecond)
+	rate, err = fetchFromURL(apiUrl2, "apiUrl2")
+	if err == nil && rate != 0 {
+		return rate
+	}
+
+	// If both fail, return 0 (caller should handle this as an error condition).
+	return 0
 }
 
-// CurrencyRequest represents a request for currency conversion
+// CurrencyRequest represents a request for currency conversion.
 type CurrencyRequest struct {
 	CurrencyFrom string `json:"currency_from"`
 	CurrencyTo   string `json:"currency_to"`
 	Quantity     int    `json:"quantity"`
 }
 
+// CurrencyResponse represents the JSON response for a currency conversion.
 type CurrencyResponse struct {
 	Result   float64 `json:"result"`
 	From     string  `json:"from"`
@@ -179,60 +180,57 @@ type CurrencyResponse struct {
 func convertHandler(w http.ResponseWriter, r *http.Request) {
 	var req CurrencyRequest
 
-	// Decode the JSON body
+	// Decode the JSON body.
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Error decoding JSON: %v", err), http.StatusBadRequest)
 		return
 	}
 
 	CurrencyPair := req.CurrencyFrom + req.CurrencyTo
 	CurrencyPairInverse := req.CurrencyTo + req.CurrencyFrom
 
-	// try adding cache
+	// Check the cache first.
 	cacheMutex.Lock()
 	rate, found := rateCache[CurrencyPair]
 	cacheMutex.Unlock()
 
 	if !found {
-		// If not found in cache, get rate from API
+		// If not found in cache, get rate from API.
 		rate = getRate(req.CurrencyFrom, req.CurrencyTo)
+		if rate == 0 {
+			http.Error(w, "Failed to retrieve rate", http.StatusInternalServerError)
+			return
+		}
 
-		// Store rates in cache
+		// Store rates in cache.
 		cacheMutex.Lock()
 		rateCache[CurrencyPair] = rate
 		rateCache[CurrencyPairInverse] = 1 / rate
 		cacheMutex.Unlock()
 	}
 
-	// Perform conversion
-	//rate := getRate(req.CurrencyFrom, req.CurrencyTo)
+	// Perform conversion.
 	result := rate * float64(req.Quantity)
 
-	// Determine the output format
+	// Determine the output format.
 	format := r.URL.Query().Get("format")
-
 	if format == "text" {
-		// Text format output
 		inverseRate := 0.0
 		if rate != 0 {
 			inverseRate = 1 / rate
 		}
-
-		output := fmt.Sprintf("\namount: %d %s\n\n", req.Quantity, req.CurrencyFrom)
+		output := fmt.Sprintf("\nAmount: %d %s\n\n", req.Quantity, req.CurrencyFrom)
 		output += fmt.Sprintf("1 %s = %.4f %s\n", req.CurrencyFrom, rate, req.CurrencyTo)
 		output += fmt.Sprintf("1 %s = %.4f %s\n\n", req.CurrencyTo, inverseRate, req.CurrencyFrom)
-		output += fmt.Sprintf("  %.2f %s\n", result, req.CurrencyTo)
-
+		output += fmt.Sprintf("Result: %.2f %s\n", result, req.CurrencyTo)
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, output)
 	} else {
-		// JSON format output
 		inverseRate := 0.0
 		if rate != 0 {
 			inverseRate = 1 / rate
 		}
-
 		resp := CurrencyResponse{
 			Result:   result,
 			From:     req.CurrencyFrom,
@@ -241,43 +239,39 @@ func convertHandler(w http.ResponseWriter, r *http.Request) {
 			ToRate:   inverseRate,
 			Quantity: req.Quantity,
 		}
-
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Printf("Error encoding JSON response: %v", err)
+		}
 	}
-
 }
 
 func main() {
 	var port string
 
-	// Define a command-line flag
+	// Define a command-line flag for the port.
 	flagPort := flag.String("p", "", "Port to run the currency converter server on")
 	flag.Parse()
 
-	// Check if the port is provided via a flag
+	// Check if the port is provided via a flag or environment variable.
 	if *flagPort != "" {
 		port = *flagPort
+	} else if envPort, exists := os.LookupEnv("CURRENCY_CONVERTER_PORT"); exists {
+		port = envPort
 	} else {
-		// Check if the port is provided via an environment variable
-		envPort, exists := os.LookupEnv("CURRENCY_CONVERTER_PORT")
-		if exists {
-			port = envPort
-		} else {
-			// Set to default port if neither flag nor environment variable is set
-			port = "18880"
-		}
+		// Set to default port if not provided.
+		port = "18880"
 	}
 
-	// Ensure port is a valid integer
+	// Validate port number.
 	if _, err := strconv.Atoi(port); err != nil {
 		log.Fatalf("Invalid port number: %s", port)
 	}
 
-	// HTTP route and handler setup
+	// Set up HTTP route and handler.
 	http.HandleFunc("/convert", convertHandler)
 
-	// Start the HTTP server
+	// Start the HTTP server.
 	fmt.Printf("Starting server at port %s...\n", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
