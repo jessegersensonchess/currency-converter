@@ -32,7 +32,7 @@ jobs:
       run: go get github.com/go-redis/redis/v8; CGO_ENABLED=0 go build -ldflags="-s -w" -o ${{ env.binary }} -v main.go && chmod +x ${{ env.binary }} 
 
     - name: Test
-      run: go test -v ./...
+      run: go get github.com/tidwall/gjson && go test -v ./...
     
     - name: Upload 
       uses: actions/upload-artifact@v4
