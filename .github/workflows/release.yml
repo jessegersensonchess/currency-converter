@@ -1,7 +1,5 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
 name: Release
+
 env:
   binary: currency-converter
 
@@ -9,84 +7,81 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
-#    tags:
-#      - 'release'
   schedule:
     - cron: "00 06 * * 6"
   pull_request:
     branches: [ "main" ]
 
 jobs:
-
-  build:
+  increment-version:
+    if: >
+      github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.increment.outputs.new_version }}
+
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.19
+      - name: Increment version
+        id: increment
+        run: |
+          CURRENT_VERSION=$(cat VERSION_NUMBER)
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          NEW_VERSION=$(cmd/version/version.sh -v "$CURRENT_VERSION" -t "$PR_TITLE")
+          echo "Current Version: ${CURRENT_VERSION}"
+          echo "Pull request title: ${PR_TITLE}"
+          echo "NEW_VERSION: ${NEW_VERSION}"
+          echo "${NEW_VERSION}" > VERSION_NUMBER
+          # Output the new version to be used in subsequent steps
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-    - name: Build
-      run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'currency_converter/version.Version=v$(cat VERSION_NUMBER)" -o ${{ env.binary }} -v && chmod +x ${{ env.binary }} 
+      - name: Commit and push VERSION_NUMBER file
+        if: steps.increment.outputs.new_version != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION_NUMBER
+          git commit -m "[ci] Bump version to $(cat VERSION_NUMBER)"
+          git push
 
+      - name: Prepare a Go env
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.20'
+          cache: false
 
-    - name: Test
-      run: go test -v ./...
-    
-    - name: Upload 
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ env.binary }}
-        path: ./
-        
-  release-content:
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-    - name: Increment version
-      id: increment
-      run: |
-        CURRENT_VERSION=$(cat VERSION_NUMBER)
-        PR_TITLE="${{ github.event.pull_request.title }}"
-        NEW_VERSION=$(cmd/version/version.sh -v "$CURRENT_VERSION" -t "$PR_TITLE")
-        echo "Current Version: ${CURRENT_VERSION}"
-        echo "Pull request title: ${PR_TITLE}"
-        echo "NEW_VERSION: ${NEW_VERSION}"
-        echo "${NEW_VERSION}" > VERSION_NUMBER
-        # Output the new version to be used in subsequent steps
-        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+      - name: Build
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'currency_converter/version.Version=v$(cat VERSION_NUMBER)'" -o ${{ env.binary }}
 
-    - name: Commit and push VERSION_NUMBER file
-      if: steps.increment.outputs.new_version != ''
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add VERSION_NUMBER
-        git commit -m "[ci] Bump version to $(cat VERSION_NUMBER)"
-        git push
+      - name: Unit tests
+        run: |
+          go test -v ./...
 
-    - name: 'Download Artifact'
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ env.binary }}
-    - name: Set permissions
-      run: chmod +x ${{ env.binary }}
-    - name: 'Create GitHub Release'
-      id: create-new-release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v0.0.${{github.run_number}}
-        release_name: v0.0.${{github.run_number}}
-    - name: Upload asset to Github Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create-new-release.outputs.upload_url }}
-        asset_path: ${{ env.binary }}
-        asset_name: ${{ env.binary }}
-        asset_content_type: application/zip 
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.binary }}
+          path: ./${{ env.binary }}
+
+      - name: 'Create GitHub Release'
+        id: create-new-release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.increment.outputs.new_version }}
+          release_name: v${{ steps.increment.outputs.new_version }}
+      - name: Upload asset to Github Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create-new-release.outputs.upload_url }}
+          asset_path: ${{ env.binary }}
+          asset_name: ${{ env.binary }}
+          asset_content_type: application/octet-stream
