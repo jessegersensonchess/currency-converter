@@ -14,14 +14,7 @@ import (
 	"currency_converter/pkg/server"
 )
 
-var version = "v0.0.2" // Default version
-
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Println(version)
-		os.Exit(0)
-	}
-
 	// Flags
 	cliMode := flag.Bool("cli", false, "Run a one-shot conversion on the CLI and exit")
 	from := flag.String("from", "", "Source currency code (e.g. USD)")
@@ -42,9 +35,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("conversion failed: %v", err)
 		}
+		fmt.Printf("Converting %d %s → %s\n", *qty, *from, *to)
 		fmt.Printf("1 %s = %.4f %s\n", *from, rate, *to)
 		fmt.Printf("1 %s = %.4f %s\n", *to, invRate, *from)
-		fmt.Printf("%.2f %s\n", result, *to)
+		fmt.Printf("Result: %.2f %s\n", result, *to)
 		return
 	}
 

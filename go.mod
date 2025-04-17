@@ -1,8 +1,3 @@
-module currency-converter
+module currency_converter
 
-go 1.12
-
-require (
-	github.com/go-redis/redis v6.15.9+incompatible // indirect
-	github.com/tidwall/gjson v1.18.0 // indirect
-)
+go 1.24.2

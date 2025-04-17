@@ -1,6 +1,8 @@
+// FILE: ./pkg/currency_server/currency.go
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/tidwall/gjson"
 )
 
 // Chart struct is retained for potential future use.
@@ -76,7 +76,10 @@ func validateCurrencyCode(currencyCode string) bool {
 
 func getRate(currencyFrom, currencyTo string) float64 {
 	// Build URL for the API call.
-	url := fmt.Sprintf("https://query1.finance.yahoo.com/v7/finance/chart/%v%v=x?corsDomain=finance.yahoo.com&range=1d&interval=1d", currencyFrom, currencyTo)
+	url := fmt.Sprintf(
+		"https://query1.finance.yahoo.com/v7/finance/chart/%v%v=x?corsDomain=finance.yahoo.com&range=1d&interval=1d",
+		currencyFrom, currencyTo,
+	)
 
 	// Create a new GET request with no body.
 	request, err := http.NewRequest("GET", url, nil)
@@ -106,12 +109,18 @@ func getRate(currencyFrom, currencyTo string) float64 {
 		panic(err)
 	}
 
-	// Extract the regularMarketPrice using gjson.
-	value := gjson.GetBytes(responseData, "chart.result.0.meta.regularMarketPrice")
-	regularMarketPrice, err := strconv.ParseFloat(value.String(), 64)
-	if err != nil {
+	// Unmarshal response into Chart struct instead of using gjson.
+	var wrapper struct {
+		Chart Chart `json:"chart"`
+	}
+	if err := json.Unmarshal(responseData, &wrapper); err != nil {
 		panic(err)
 	}
+	if len(wrapper.Chart.Result) == 0 {
+		panic("no result in chart data")
+	}
+	regularMarketPrice := wrapper.Chart.Result[0].Meta.RegularMarketPrice
+
 	return regularMarketPrice
 }
 

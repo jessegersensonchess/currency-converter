@@ -3,9 +3,8 @@ RUN  mkdir /build && \
 	 cd /build
 WORKDIR "/build"
 COPY . ./
-RUN	 go get github.com/go-redis/redis/v8 && \
-     go get github.com/tidwall/gjson && \
- 	 go build
+# todo: get build version in here
+RUN	 go build
 
 FROM alpine:3.21
 COPY --from=builder /build/currency-converter .
