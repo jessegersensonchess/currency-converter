@@ -14,8 +14,8 @@ on:
 
 jobs:
   increment-version:
-    if: >
-      github.event.pull_request.merged == true
+#    if: >
+#      github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.increment.outputs.new_version }}

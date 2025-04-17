@@ -3,18 +3,30 @@ package main
 
 import (
 	"context"
+	"embed"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"currency_converter/pkg/converter"
 	"currency_converter/pkg/fetcher"
 	"currency_converter/pkg/server"
 )
 
-var version = "v0.0.2" // Default version
+//go:embed VERSION_NUMBER
+var files embed.FS
+
+// read it at init time
+var version = func() string {
+	data, err := files.ReadFile("VERSION_NUMBER")
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(data))
+}()
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
