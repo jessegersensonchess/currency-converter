@@ -28,7 +28,7 @@ jobs:
         id: increment
         run: |
           CURRENT_VERSION=$(cat VERSION_NUMBER)
-          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_TITLE="${{ github.event.pull_request.title }} coming soon"
           NEW_VERSION=$(cmd/version/version.sh -v "$CURRENT_VERSION" -t "$PR_TITLE")
           echo "Current Version: ${CURRENT_VERSION}"
           echo "Pull request title: ${PR_TITLE}"
