@@ -29,7 +29,8 @@ jobs:
         go-version: 1.19
 
     - name: Build
-      run: CGO_ENABLED=0 go build -ldflags="-s -w" -o ${{ env.binary }} -v && chmod +x ${{ env.binary }} 
+      run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'currency_converter/version.Version=v$(cat VERSION_NUMBER)" -o ${{ env.binary }} -v && chmod +x ${{ env.binary }} 
+
 
     - name: Test
       run: go test -v ./...
@@ -44,6 +45,28 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+    - name: Increment version
+      id: increment
+      run: |
+        CURRENT_VERSION=$(cat VERSION_NUMBER)
+        PR_TITLE="${{ github.event.pull_request.title }}"
+        NEW_VERSION=$(cmd/version/version.sh -v "$CURRENT_VERSION" -t "$PR_TITLE")
+        echo "Current Version: ${CURRENT_VERSION}"
+        echo "Pull request title: ${PR_TITLE}"
+        echo "NEW_VERSION: ${NEW_VERSION}"
+        echo "${NEW_VERSION}" > VERSION_NUMBER
+        # Output the new version to be used in subsequent steps
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Commit and push VERSION_NUMBER file
+      if: steps.increment.outputs.new_version != ''
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add VERSION_NUMBER
+        git commit -m "[ci] Bump version to $(cat VERSION_NUMBER)"
+        git push
+
     - name: 'Download Artifact'
       uses: actions/download-artifact@v4
       with:

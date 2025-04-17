@@ -52,8 +52,7 @@ func NewHandler(cv *converter.Converter) http.Handler {
 
 func formatTextResponse(qty int, from, to string, rate, invRate, result float64) string {
 	return fmt.Sprintf(
-		"Amount: %d %s\n1 %s = %.4f %s\n1 %s = %.4f %s\nResult: %.2f %s\n",
-		qty, from,
+		"1 %s = %.4f %s\n1 %s = %.4f %s\n\n%.2f %s\n",
 		from, rate, to,
 		to, invRate, from,
 		result, to,

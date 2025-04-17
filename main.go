@@ -44,7 +44,7 @@ func main() {
 		}
 		fmt.Printf("1 %s = %.4f %s\n", *from, rate, *to)
 		fmt.Printf("1 %s = %.4f %s\n", *to, invRate, *from)
-		fmt.Printf("%.2f %s\n", result, *to)
+		fmt.Printf("\n%.2f %s\n", result, *to)
 		return
 	}
 

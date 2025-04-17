@@ -35,10 +35,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("conversion failed: %v", err)
 		}
-		fmt.Printf("Converting %d %s → %s\n", *qty, *from, *to)
 		fmt.Printf("1 %s = %.4f %s\n", *from, rate, *to)
 		fmt.Printf("1 %s = %.4f %s\n", *to, invRate, *from)
-		fmt.Printf("Result: %.2f %s\n", result, *to)
+		fmt.Printf("\n\n%.2f %s\n", result, *to)
 		return
 	}
 
