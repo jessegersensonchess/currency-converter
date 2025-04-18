@@ -13,9 +13,9 @@ import (
 func NewHandler(cv *converter.Converter) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		type reqBody struct {
-			From string `json:"currency_from"`
-			To   string `json:"currency_to"`
-			Qty  int    `json:"quantity"`
+			From string  `json:"currency_from"`
+			To   string  `json:"currency_to"`
+			Qty  float64 `json:"quantity"`
 		}
 		var body reqBody
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -42,7 +42,7 @@ func NewHandler(cv *converter.Converter) http.Handler {
 			To       string  `json:"to"`
 			FromRate float64 `json:"from_rate"`
 			ToRate   float64 `json:"to_rate"`
-			Quantity int     `json:"quantity"`
+			Quantity float64 `json:"quantity"`
 		}
 		resp := jsonResp{result, body.From, body.To, rate, invRate, body.Qty}
 		w.Header().Set("Content-Type", "application/json")
@@ -50,7 +50,7 @@ func NewHandler(cv *converter.Converter) http.Handler {
 	})
 }
 
-func formatTextResponse(qty int, from, to string, rate, invRate, result float64) string {
+func formatTextResponse(qty float64, from, to string, rate, invRate, result float64) string {
 	return fmt.Sprintf(
 		"1 %s = %.4f %s\n1 %s = %.4f %s\n\n%.2f %s\n",
 		from, rate, to,

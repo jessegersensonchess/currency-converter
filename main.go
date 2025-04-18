@@ -38,7 +38,8 @@ func main() {
 	cliMode := flag.Bool("cli", false, "Run a one-shot conversion on the CLI and exit")
 	from := flag.String("from", "", "Source currency code (e.g. USD)")
 	to := flag.String("to", "", "Target currency code (e.g. EUR)")
-	qty := flag.Int("qty", 1, "Amount to convert")
+	qty := flag.Float64("qty", 1.0, "Amount to convert")
+
 	portFlag := flag.String("p", "", "Port for HTTP server (default 18880)")
 	flag.Parse()
 

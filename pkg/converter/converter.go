@@ -28,7 +28,7 @@ func New(f RateFetcher) *Converter {
 }
 
 // Convert returns (rate, inverseRate, convertedAmount, error).
-func (c *Converter) Convert(ctx context.Context, from, to string, qty int) (
+func (c *Converter) Convert(ctx context.Context, from, to string, qty float64) (
 	rate, inverse, result float64, err error,
 ) {
 	key := from + to
@@ -54,6 +54,6 @@ func (c *Converter) Convert(ctx context.Context, from, to string, qty int) (
 	}
 
 	inverse = 1 / rate
-	result = rate * float64(qty)
+	result = rate * qty
 	return rate, inverse, result, nil
 }
