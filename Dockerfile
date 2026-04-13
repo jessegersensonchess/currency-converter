@@ -1,11 +1,10 @@
-FROM golang:1.19-alpine3.21 as builder
-RUN  mkdir /build && \
-	 cd /build
-WORKDIR "/build"
+FROM golang:1.25-alpine AS builder
 COPY . ./
-# todo: get build version in here
-RUN	 go build
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'currency_converter/version.Version=v$(cat VERSION_NUMBER)'"
+RUN apk add --no-cache ca-certificates
 
-FROM alpine:3.21
-COPY --from=builder /build/currency-converter .
-ENTRYPOINT [ "./currency-converter" ]
+FROM scratch
+COPY --from=builder /go/currency_converter .
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+ENTRYPOINT [ "./currency_converter" ]
