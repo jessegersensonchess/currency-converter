@@ -54,7 +54,7 @@ jobs:
 
       - name: Build
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'currency_converter/version.Version=v$(cat VERSION_NUMBER)'" -o ${{ env.binary }}
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X 'currency_converter/version.Version=v$(cat VERSION_NUMBER)'" -o ${{ env.binary }} ./cmd/currency
 
       - name: Unit tests
         run: |

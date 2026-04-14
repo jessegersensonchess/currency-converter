@@ -21,11 +21,11 @@ func NewYahooFetcher() *YahooFetcher {
 }
 
 const (
-	api1        = "https://query1.finance.yahoo.com/v7/finance/chart"
-	api2        = "https://query2.finance.yahoo.com/v7/finance/chart"
-	requestTO   = 2 * time.Second
-	baseBackoff = 500 * time.Millisecond
-	maxRetries  = 2
+	api1           = "https://query1.finance.yahoo.com/v7/finance/chart"
+	api2           = "https://query2.finance.yahoo.com/v7/finance/chart"
+	requestTimeOut = 2 * time.Second
+	baseBackoff    = 500 * time.Millisecond
+	maxRetries     = 2
 )
 
 type yahooResponse struct {
@@ -48,7 +48,7 @@ func (f *YahooFetcher) FetchRate(ctx context.Context, from, to string) (float64,
 
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			// bound each HTTP call to its own timeout
-			reqCtx, cancel := context.WithTimeout(ctx, requestTO)
+			reqCtx, cancel := context.WithTimeout(ctx, requestTimeOut)
 			defer cancel()
 
 			url := fmt.Sprintf("%s/%s%s=x?range=1d&interval=1d", baseURL, from, to)
