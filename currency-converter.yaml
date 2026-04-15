@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: currency-converter
-          image: currency-converter:local
+          image: currency-converter:c3a93f5
           imagePullPolicy: Never
           env:
             - name: CURRENCY_CONVERTER_PORT
