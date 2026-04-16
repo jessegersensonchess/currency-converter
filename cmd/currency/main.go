@@ -1,4 +1,3 @@
-// cmd/currency/main.go
 package main
 
 import (
@@ -19,7 +18,6 @@ import (
 //go:embed VERSION_NUMBER
 var files embed.FS
 
-// read it at init time
 var version = func() string {
 	data, err := files.ReadFile("VERSION_NUMBER")
 	if err != nil {
@@ -34,7 +32,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Flags
 	cliMode := flag.Bool("cli", false, "Run a one-shot conversion on the CLI and exit")
 	from := flag.String("from", "", "Source currency code (e.g. USD)")
 	to := flag.String("to", "", "Target currency code (e.g. EUR)")
@@ -42,7 +39,6 @@ func main() {
 	portFlag := flag.String("p", "", "Port for HTTP server (default 18880)")
 	flag.Parse()
 
-	// Build a Converter with a YahooFetcher
 	rateFetcher := fetcher.NewYahooFetcher()
 	cv := converter.New(rateFetcher)
 
@@ -60,10 +56,9 @@ func main() {
 		return
 	}
 
-	// HTTP server
 	port := defaultPort(*portFlag)
 	handler := server.NewHandler(cv)
-	http.Handle("/convert", handler)
+	http.Handle("/convert/", handler)
 
 	fmt.Printf("Starting HTTP server on :%s\n", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {

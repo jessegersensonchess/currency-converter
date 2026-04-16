@@ -19,12 +19,12 @@ type RateCacheItem struct {
 	Timestamp time.Time
 }
 
-// Converter holds a fetcher and a thread‑safe cache.
+// Converter holds a fetcher and a thread-safe cache.
 type Converter struct {
 	fetcher RateFetcher
 	cache   map[string]RateCacheItem
-	mu      sync.Mutex
-	ttl     time.Duration // TTL for cache items
+	mu      sync.RWMutex
+	ttl     time.Duration
 }
 
 // New constructs a Converter.
@@ -32,7 +32,7 @@ func New(f RateFetcher) *Converter {
 	return &Converter{
 		fetcher: f,
 		cache:   make(map[string]RateCacheItem),
-		ttl:     43200 * time.Second, // TTL is 7200 seconds (2 hours)
+		ttl:     43200 * time.Second,
 	}
 }
 
@@ -43,16 +43,13 @@ func (c *Converter) Convert(ctx context.Context, from, to string, qty float64) (
 	key := from + to
 	invKey := to + from
 
-	// Check cache and TTL
-	c.mu.Lock()
+	c.mu.RLock()
 	cachedItem, ok := c.cache[key]
-	c.mu.Unlock()
+	c.mu.RUnlock()
 
-	// If rate is in cache and TTL is not expired, return cached rate
 	if ok && time.Since(cachedItem.Timestamp) < c.ttl {
 		rate = cachedItem.Rate
 	} else {
-		// If not in cache or TTL expired, fetch a new rate
 		rate, err = c.fetcher.FetchRate(ctx, from, to)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("fetch rate: %w", err)
@@ -61,14 +58,14 @@ func (c *Converter) Convert(ctx context.Context, from, to string, qty float64) (
 			return 0, 0, 0, fmt.Errorf("invalid rate %.6f for %s→%s", rate, from, to)
 		}
 
-		// Update cache with new rate and current timestamp
+		now := time.Now()
+
 		c.mu.Lock()
-		c.cache[key] = RateCacheItem{Rate: rate, Timestamp: time.Now()}
-		c.cache[invKey] = RateCacheItem{Rate: 1 / rate, Timestamp: time.Now()}
+		c.cache[key] = RateCacheItem{Rate: rate, Timestamp: now}
+		c.cache[invKey] = RateCacheItem{Rate: 1 / rate, Timestamp: now}
 		c.mu.Unlock()
 	}
 
-	// Calculate inverse and result
 	inverse = 1 / rate
 	result = rate * qty
 	return rate, inverse, result, nil
