@@ -89,7 +89,8 @@ func main() {
 			qty = v
 		}
 
-		if err := doConvert(client, from, to, qty, false); err != nil {
+		isVerbose := true
+		if err := doConvert(client, from, to, qty, isVerbose); err != nil {
 			fmt.Printf("request failed: %v\n", err)
 		}
 	}
@@ -135,6 +136,7 @@ func doConvert(client *http.Client, from, to string, qty float64, verbose bool) 
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
+
 	if err != nil {
 		if verbose {
 			fmt.Printf("elapsed=%v\n", elapsed)
@@ -142,8 +144,8 @@ func doConvert(client *http.Client, from, to string, qty float64, verbose bool) 
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	fmt.Printf("%s\n", respBody)
 	if verbose {
+		fmt.Printf("%s\n", respBody)
 		fmt.Printf("elapsed=%v\n", elapsed)
 	}
 
