@@ -4,6 +4,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ func NewHandler(cv *converter.Converter) http.Handler {
 
 		from, to, qty, err := parseConvertPath(r.URL.Path)
 		if err != nil {
+			log.Printf("bad request, %v", err.Error())
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
