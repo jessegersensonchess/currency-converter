@@ -27,6 +27,8 @@ var version = func() string {
 }()
 
 func main() {
+	log.SetOutput(os.Stdout)
+
 	if len(os.Args) > 1 && os.Args[1] == "version" {
 		fmt.Println(version)
 		os.Exit(0)
