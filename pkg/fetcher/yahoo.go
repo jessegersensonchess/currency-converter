@@ -88,6 +88,7 @@ func (f *YahooFetcher) FetchRate(ctx context.Context, from, to string) (float64,
 				if len(wrapper.Chart.Result) == 0 {
 					return 0, errors.New("YahooFetcher: no result in chart")
 				}
+				log.Printf("YahooFetcher got %v to %v", from, to)
 				return wrapper.Chart.Result[0].Meta.RegularMarketPrice, nil
 			}
 
